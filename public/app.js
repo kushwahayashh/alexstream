@@ -179,13 +179,13 @@ function heroHtml(movie) {
   `;
 }
 
-function qualityGridHtml(links) {
+function qualityGridHtml(links, fid) {
   if (!links.length) {
     return '<p style="color:#888">No stream links available.</p>';
   }
   return '<div class="quality-grid">' +
     links.map(l => `
-      <button class="quality-btn" data-url="${l.proxiedUrl}" data-ext="${l.ext}">
+      <button class="quality-btn" data-url="${l.proxiedUrl}" data-ext="${l.ext}" data-fid="${fid}">
         <div class="qlabel">${l.quality} <span class="qext">${l.ext}</span></div>
         <div class="qmeta">${l.size || ''} ${l.speed || ''}</div>
       </button>
@@ -195,16 +195,18 @@ function qualityGridHtml(links) {
 
 function bindQualityButtons(root) {
   root.querySelectorAll('.quality-btn').forEach(btn => {
-    btn.addEventListener('click', () => playStream(btn.dataset.url, btn.dataset.ext));
+    btn.addEventListener('click', () => {
+      playStream(btn.dataset.url, btn.dataset.ext, { fid: btn.dataset.fid });
+    });
   });
 }
 
-function renderDetail(movie, links) {
+function renderDetail(movie, links, fid) {
   detailView.innerHTML = `
     <button class="detail-back" id="backBtn">← Back to results</button>
     ${heroHtml(movie)}
     <div class="detail-section-title">Available Quality</div>
-    ${qualityGridHtml(links)}
+    ${qualityGridHtml(links, fid)}
   `;
   document.getElementById('backBtn').addEventListener('click', () => showDetail(false));
   bindQualityButtons(detailView);
@@ -221,7 +223,7 @@ async function loadHlsJs() {
   });
 }
 
-async function playStream(url, ext) {
+async function playStream(url, ext, subCtx = {}) {
   stopPlayer();
 
   const overlay = document.createElement('div');
@@ -257,6 +259,29 @@ async function playStream(url, ext) {
   } else {
     video.src = url;
   }
+
+  // Attach subtitles in the background; failures here must never block playback.
+  loadSubtitles(video, subCtx).catch(() => {});
+}
+
+// Fetch subtitles for the exact file (by FebBox fid) and add them as <track>s.
+// FebBox hosts subs tied to this file, so they're already in sync. The browser's
+// native player exposes them in its CC menu; the first is marked default.
+async function loadSubtitles(video, { fid } = {}) {
+  if (!fid) return;
+
+  const data = await api(`/api/subtitles?fid=${fid}`);
+  const subs = data.subtitles || [];
+
+  subs.forEach((sub, i) => {
+    const track = document.createElement('track');
+    track.kind = 'subtitles';
+    track.srclang = sub.lang;
+    track.label = sub.langName || sub.lang;
+    track.src = sub.url;
+    if (i === 0) track.default = true;
+    video.appendChild(track);
+  });
 }
 
 function showDetailError(message) {
@@ -284,7 +309,7 @@ async function openMovie(movie) {
 
     const target = vids[0];
     const linksData = await api(`/api/links?fid=${target.fid}`);
-    renderDetail(movie, linksData.links);
+    renderDetail(movie, linksData.links, target.fid);
   } catch (err) {
     showDetailError(err.message);
   }
@@ -453,7 +478,7 @@ async function toggleEpisode(row) {
   box.innerHTML = '<div class="loading"><div class="spinner"></div><p>Loading qualities...</p></div>';
   try {
     const data = await api(`/api/links?fid=${row.dataset.fid}`);
-    box.innerHTML = qualityGridHtml(data.links);
+    box.innerHTML = qualityGridHtml(data.links, row.dataset.fid);
     bindQualityButtons(box);
   } catch (err) {
     box.innerHTML = `<p style="color:#888">Error: ${err.message}</p>`;
