@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s \"http://127.0.0.1:3000/api/search?q=breaking+bad\" -o /tmp/live.json -w \"HTTP %{http_code}\\\\n\")",
+      "Bash(python3 -c ' *)"
+    ]
+  }
+}

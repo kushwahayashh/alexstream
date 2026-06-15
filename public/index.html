@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AlexTV</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <h1 class="logo">AlexTV</h1>
+      <div class="search-bar">
+        <input type="text" id="searchInput" placeholder="Search for a movie..." autofocus>
+        <button id="searchBtn">Search</button>
+      </div>
+    </header>
+    <main class="content">
+      <div id="browseView">
+        <div id="results" class="results-grid"></div>
+        <div id="emptyState" class="empty-state">
+          <p>Search for a movie to get started</p>
+        </div>
+      </div>
+      <div id="detailView" class="detail-view hidden"></div>
+    </main>
+  </div>
+  <script src="/app.js"></script>
+</body>
+</html>
