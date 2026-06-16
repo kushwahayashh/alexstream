@@ -269,6 +269,71 @@ async function handleLinks(req, res) {
   }
 }
 
+// Normalize a title for fuzzy matching: lowercase, strip punctuation/articles noise.
+function normalizeTitle(s = '') {
+  return s
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/['’`:!?.,_\-–—()]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// Map a TMDB title (which we browse against) to a streamable ShowBox id by
+// searching ShowBox and picking the best title+year match. TMDB and ShowBox use
+// unrelated internal ids, so this lookup is the bridge between the two.
+async function handleResolve(req, res) {
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const title = (url.searchParams.get('title') || '').trim();
+  const year = url.searchParams.get('year') || '';
+  const mediaType = url.searchParams.get('type') === 'tv' ? 'tv' : 'movie';
+
+  if (!title) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Missing title' }));
+    return;
+  }
+
+  try {
+    const data = await showboxRequest('Search5', { type: mediaType, keyword: title, page: '1', pagelimit: '20' });
+    const items = data.data || [];
+    const want = normalizeTitle(title);
+    const wantYear = Number(year) || null;
+
+    const scored = items.map((it) => {
+      const t = normalizeTitle(it.title);
+      const yearDiff = wantYear && it.year ? Math.abs(Number(it.year) - wantYear) : 99;
+      return {
+        it,
+        exact: t === want,
+        starts: t.startsWith(want) || want.startsWith(t),
+        yearDiff,
+      };
+    });
+    scored.sort((a, b) =>
+      Number(b.exact) - Number(a.exact) ||
+      a.yearDiff - b.yearDiff ||
+      Number(b.starts) - Number(a.starts));
+
+    const best =
+      scored.find((s) => s.exact && s.yearDiff <= 1) ||
+      scored.find((s) => s.exact) ||
+      scored.find((s) => s.starts && s.yearDiff <= 1) ||
+      scored[0];
+
+    if (!best) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'No match found on ShowBox' }));
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ id: best.it.id, title: best.it.title, year: best.it.year }));
+  } catch (err) {
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: err.message }));
+  }
+}
+
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
 
@@ -283,6 +348,9 @@ const server = http.createServer((req, res) => {
   }
   if (url.pathname === '/api/links' && req.method === 'GET') {
     return handleLinks(req, res);
+  }
+  if (url.pathname === '/api/resolve' && req.method === 'GET') {
+    return handleResolve(req, res);
   }
   if (url.pathname === '/api/subtitles' && req.method === 'GET') {
     return handleSubtitles(req, res);
