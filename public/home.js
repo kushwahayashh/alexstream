@@ -108,7 +108,7 @@ function processNavKey(key) {
   focusCurrent();
 }
 
-// Called by keys.js for the home page. Throttled so holding a key eases rather
+// Called by the keyboard router (main.js) for the home page. Throttled so holding a key eases rather
 // than races; taps stay snappy.
 export function handleHomeKey(e) {
   if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter'].includes(e.key)) return;

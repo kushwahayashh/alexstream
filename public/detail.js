@@ -6,8 +6,7 @@
    streams. Keyboard nav is a flat (row, col) grid.                         */
 
 import { $, $$, clamp, paintIcons, escapeHtml } from './dom.js';
-import { tmdbFetch, backdropURL, posterURL } from './tmdb.js';
-import { api } from './api.js';
+import { tmdbFetch, backdropURL, posterURL, api } from './tmdb.js';
 import { isSaved, toggleWatchlist } from './watchlist.js';
 import { showPage, getLastBrowsePage } from './router.js';
 import { openQualityModal } from './player.js';

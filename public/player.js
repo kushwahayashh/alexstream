@@ -4,10 +4,11 @@
    closes it and starts the HLS/MP4 player.
 
    This module owns its modals' keyboard handling: handleModalKey(e) returns
-   true if it consumed the event, so keys.js can give modals first dibs.     */
+   true if it consumed the event, so main.js's keyboard router can give modals
+   first dibs.                                                                */
 
 import { $, $$ } from './dom.js';
-import { api } from './api.js';
+import { api } from './tmdb.js';
 
 /* ---- Quality picker modal ---- */
 
@@ -129,7 +130,7 @@ async function loadSubtitles(video, { fid } = {}) {
 }
 
 /* ---- Modal keyboard handling ----
-   Returns true when an open modal consumed the key (so keys.js stops).      */
+   Returns true when an open modal consumed the key (so the router stops).   */
 export function handleModalKey(e) {
   const qModal = $('#qModal');
   if (qModal) {
