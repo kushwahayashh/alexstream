@@ -8,14 +8,12 @@
 
 import { $, $$ } from './dom.js';
 
-const BROWSE_PAGES = ['home', 'search', 'library', 'settings'];
+const BROWSE_PAGES = ['home', 'search'];
 
 const topbar = $('#topbar');
 const pages = {
   home: $('#homePage'),
   search: $('#searchPage'),
-  library: $('#libraryPage'),
-  settings: $('#settingsPage'),
   detail: $('#detailView'),
 };
 const navPills = $$('.nav-pill');
@@ -32,6 +30,7 @@ export const onLeave = (fn) => leaveHooks.push(fn);
 export const onEnterHome = (fn) => enterHomeHooks.push(fn);
 
 export function showPage(page) {
+  if (!pages[page]) return; // unknown page (e.g. Library/Settings — no view yet)
   leaveHooks.forEach((fn) => fn(page));
 
   currentPage = page;
@@ -55,6 +54,7 @@ export function showPage(page) {
 export function initChrome({ onSearchPage } = {}) {
   navPills.forEach((pill) => {
     pill.addEventListener('click', () => {
+      // showPage ignores pages without a view (Library/Settings are inert for now).
       showPage(pill.dataset.page);
       if (pill.dataset.page === 'search') onSearchPage?.();
     });

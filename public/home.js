@@ -16,6 +16,7 @@ import {
 import { openTitle } from './detail.js';
 
 const contentEl = $('#content');
+const searchInput = $('#searchInput');
 
 const ROWS = [
   { title: 'Trending This Week', path: '/trending/all/week' },
@@ -39,7 +40,13 @@ let navLastTime = 0;
 export function focusCurrent() {
   if (getCurrentPage() !== 'home') return;
   if (nav.area === 'nav') {
-    nav.col = clamp(nav.col, 0, navPills.length - 1);
+    // The slot past the last pill is the search field (no pill of its own).
+    // Focusing it switches to the search page via the input's focus listener.
+    nav.col = clamp(nav.col, 0, navPills.length);
+    if (nav.col === navPills.length) {
+      searchInput.focus({ preventScroll: true });
+      return;
+    }
     // Just focus the pill; arrows pass through it. Activation happens on Enter.
     navPills[nav.col]?.focus({ preventScroll: true });
     return;
@@ -84,8 +91,9 @@ function processNavKey(key) {
   if (key === 'Enter') { navEnter(); return; }
 
   if (nav.area === 'nav') {
-    if (key === 'ArrowRight') nav.col = clamp(nav.col + 1, 0, navPills.length - 1);
-    else if (key === 'ArrowLeft') nav.col = clamp(nav.col - 1, 0, navPills.length - 1);
+    // navPills.length is the extra slot for the search field.
+    if (key === 'ArrowRight') nav.col = clamp(nav.col + 1, 0, navPills.length);
+    else if (key === 'ArrowLeft') nav.col = clamp(nav.col - 1, 0, navPills.length);
     else if (key === 'ArrowDown') { nav.area = 0; nav.col = 0; }
     focusCurrent();
     return;
