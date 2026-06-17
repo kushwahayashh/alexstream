@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AlexTV (dev)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="preconnect" href="https://image.tmdb.org" crossorigin>
+  <link rel="stylesheet" href="/style.css">
+  <!-- DEV ONLY: point the bundled UI at the hosted Modal backend so it can be
+       tested in a normal browser (served over http, not file://). The real app
+       sets window.__BACKEND_BASE natively and does not load this page. -->
+  <script>window.__BACKEND_BASE = "https://alexhasitbig--alexstream-serve.modal.run";</script>
+</head>
+<body>
+  <header id="topbar">
+    <div class="brand">ALEX<span>TV</span></div>
+    <nav class="nav-pills">
+      <button class="nav-pill active" data-page="home">Home</button>
+      <button class="nav-pill" data-page="library">Library</button>
+      <button class="nav-pill" data-page="settings">Settings</button>
+    </nav>
+    <div class="search-field" id="searchField">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 21l-4.3-4.3M11 19a8 8 0 100-16 8 8 0 000 16z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <input type="text" id="searchInput" placeholder="Search movies & shows" autocomplete="off">
+    </div>
+  </header>
+
+  <main id="homePage">
+    <section id="hero">
+      <div id="hero-backdrop"></div>
+      <div id="hero-gradient"></div>
+      <div id="hero-content">
+        <h1 id="hero-title"></h1>
+        <div id="hero-meta"></div>
+        <p id="hero-overview"></p>
+      </div>
+    </section>
+    <section id="content"></section>
+  </main>
+
+  <section id="searchPage" class="hidden">
+    <div id="searchResults" class="poster-grid"></div>
+    <div id="searchEmpty" class="page-empty">Search for a movie or show to get started.</div>
+  </section>
+
+  <section id="detailView" class="hidden"></section>
+
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+  <script src="/native-bridge.js"></script>
+  <script type="module" src="/main.js"></script>
+</body>
+</html>
