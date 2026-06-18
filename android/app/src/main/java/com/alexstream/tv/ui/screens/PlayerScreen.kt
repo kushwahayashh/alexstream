@@ -93,6 +93,7 @@ data class SubtitleSpec(
 @Composable
 fun PlayerScreen(
     streamUrl: String,
+    streamExt: String = "",
     mediaPath: String,
     title: String,
     initialResumePositionMs: Long,
@@ -309,7 +310,7 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(streamUrl, retryToken) {
+    LaunchedEffect(streamUrl, streamExt, retryToken) {
         playbackError = null
         val shouldResume = if (retryToken != 0L) exoPlayer.playWhenReady else true
         exoPlayer.stop()
@@ -325,6 +326,7 @@ fun PlayerScreen(
             }
             val mediaItem = MediaItem.Builder()
                 .setUri(streamUrl)
+                .setMimeType(streamMimeType(streamExt, streamUrl))
                 .setSubtitleConfigurations(subConfigs)
                 .build()
             exoPlayer.setMediaItem(mediaItem)
@@ -602,6 +604,15 @@ fun PlayerScreen(
                 }
             )
         }
+    }
+}
+
+private fun streamMimeType(ext: String, url: String): String? {
+    val normalizedExt = ext.trim().lowercase()
+    return when {
+        normalizedExt == "m3u8" -> MimeTypes.APPLICATION_M3U8
+        url.contains(".m3u8", ignoreCase = true) -> MimeTypes.APPLICATION_M3U8
+        else -> null
     }
 }
 

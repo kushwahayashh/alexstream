@@ -25,6 +25,7 @@ class PlayerActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
         val streamUrl = intent.getStringExtra(EXTRA_STREAM_URL).orEmpty()
+        val streamExt = intent.getStringExtra(EXTRA_STREAM_EXT).orEmpty()
         val title = intent.getStringExtra(EXTRA_TITLE).orEmpty()
         val fid = intent.getStringExtra(EXTRA_FID).orEmpty()
         if (streamUrl.isBlank()) {
@@ -45,6 +46,7 @@ class PlayerActivity : ComponentActivity() {
 
                 PlayerScreen(
                     streamUrl = streamUrl,
+                    streamExt = streamExt,
                     mediaPath = "", // resume disabled — no Continue Watching row in the UI yet
                     title = title,
                     initialResumePositionMs = 0L,
@@ -94,6 +96,7 @@ class PlayerActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_STREAM_URL = "stream_url"
+        const val EXTRA_STREAM_EXT = "stream_ext"
         const val EXTRA_TITLE = "title"
         const val EXTRA_FID = "fid"
     }

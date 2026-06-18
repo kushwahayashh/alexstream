@@ -248,6 +248,7 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 val intent = Intent(this@MainActivity, PlayerActivity::class.java).apply {
                     putExtra(PlayerActivity.EXTRA_STREAM_URL, url)
+                    putExtra(PlayerActivity.EXTRA_STREAM_EXT, ext)
                     putExtra(PlayerActivity.EXTRA_TITLE, title)
                     putExtra(PlayerActivity.EXTRA_FID, fid)
                 }
