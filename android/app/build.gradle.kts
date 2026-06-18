@@ -15,9 +15,37 @@ android {
         versionName = "1.0"
     }
 
+    // Release signing is driven by environment variables so the keystore never
+    // lives in the repo (it's a base64 GitHub Secret, decoded in CI). When the
+    // env vars are absent (local builds, forks without secrets) we fall back to
+    // the default debug keystore so the build still succeeds.
+    val keystorePath = System.getenv("KEYSTORE_FILE")
+    val hasReleaseKeystore = keystorePath != null && file(keystorePath).exists()
+
+    signingConfigs {
+        if (hasReleaseKeystore) {
+            create("release") {
+                storeFile = file(keystorePath!!)
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
+        debug {
+            // Sign debug with the release key when available so in-app updates
+            // install over previous builds (Android requires matching signatures).
+            if (hasReleaseKeystore) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
         release {
             isMinifyEnabled = false
+            if (hasReleaseKeystore) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

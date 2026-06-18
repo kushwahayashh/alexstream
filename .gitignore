@@ -32,3 +32,4 @@ venv/
 # ───────── OS / editor ─────────
 .DS_Store
 Thumbs.db
+KEYSTORE_SECRETS.local.txt
