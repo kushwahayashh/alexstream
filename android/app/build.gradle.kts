@@ -19,7 +19,7 @@ android {
     // lives in the repo (it's a base64 GitHub Secret, decoded in CI). When the
     // env vars are absent (local builds, forks without secrets) we fall back to
     // the default debug keystore so the build still succeeds.
-    val keystorePath = System.getenv("KEYSTORE_FILE")
+    val keystorePath = System.getenv("KEYSTORE_FILE")?.takeIf { it.isNotBlank() }
     val hasReleaseKeystore = keystorePath != null && file(keystorePath).exists()
 
     signingConfigs {
