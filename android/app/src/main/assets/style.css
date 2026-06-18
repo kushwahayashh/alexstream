@@ -19,7 +19,9 @@
   --ease: cubic-bezier(0.25, 0.1, 0.25, 1);
 }
 
-html { scroll-behavior: auto; }
+/* Pin the root font-size (default would be 16px) so rem-based sizing matches the
+   intended TV scale — without this the whole UI renders ~23% larger. */
+html { font-size: 13px; scroll-behavior: auto; }
 
 body {
   background: var(--bg);
