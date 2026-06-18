@@ -90,6 +90,8 @@ data class SubtitleSpec(
     val language: String
 )
 
+private const val FEBBOX_SUBTITLE_LABEL_PREFIX = "[febbox] "
+
 @Composable
 fun PlayerScreen(
     streamUrl: String,
@@ -98,6 +100,7 @@ fun PlayerScreen(
     title: String,
     initialResumePositionMs: Long,
     subtitles: List<SubtitleSpec> = emptyList(),
+    subtitlesLoading: Boolean = false,
     onClose: () -> Unit
 ) {
     val context = LocalContext.current
@@ -162,6 +165,7 @@ fun PlayerScreen(
     var wasPausedAtMs by remember { mutableLongStateOf(-1L) }
     var actionFeedback by remember { mutableStateOf<PlayerActionFeedback?>(null) }
     var playWhenReadyState by remember { mutableStateOf(true) }
+    var loadedStreamUrl by remember { mutableStateOf<String?>(null) }
 
     var pendingResumeSeekMs by remember { mutableLongStateOf(-1L) }
     val isPlaybackIntended = isPlaying || playWhenReadyState
@@ -310,18 +314,25 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(streamUrl, streamExt, retryToken) {
+    val subtitleSignature = remember(subtitles) {
+        subtitles.joinToString("|") { "${it.url}#${it.label}#${it.language}" }
+    }
+
+    LaunchedEffect(streamUrl, streamExt, retryToken, subtitleSignature) {
         playbackError = null
-        val shouldResume = if (retryToken != 0L) exoPlayer.playWhenReady else true
+        val hadSameMediaItem = exoPlayer.mediaItemCount > 0 && loadedStreamUrl == streamUrl
+        val resumePositionMs = if (hadSameMediaItem) exoPlayer.currentPosition.coerceAtLeast(0L) else 0L
+        val shouldResume = if (retryToken != 0L || hadSameMediaItem) exoPlayer.playWhenReady else true
         exoPlayer.stop()
         exoPlayer.clearMediaItems()
         if (streamUrl.isNotBlank()) {
             val subConfigs = subtitles.mapNotNull { sub ->
                 if (sub.url.isBlank()) return@mapNotNull null
+                val label = sub.label.ifBlank { "FebBox subtitle" }
                 MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(sub.url))
                     .setMimeType(MimeTypes.TEXT_VTT)
                     .setLanguage(sub.language.ifBlank { null })
-                    .setLabel(sub.label.ifBlank { null })
+                    .setLabel(FEBBOX_SUBTITLE_LABEL_PREFIX + label)
                     .build()
             }
             val mediaItem = MediaItem.Builder()
@@ -329,10 +340,16 @@ fun PlayerScreen(
                 .setMimeType(streamMimeType(streamExt, streamUrl))
                 .setSubtitleConfigurations(subConfigs)
                 .build()
-            exoPlayer.setMediaItem(mediaItem)
+            if (hadSameMediaItem) {
+                exoPlayer.setMediaItem(mediaItem, resumePositionMs)
+            } else {
+                exoPlayer.setMediaItem(mediaItem)
+            }
+            loadedStreamUrl = streamUrl
             exoPlayer.prepare()
             exoPlayer.playWhenReady = shouldResume
         } else {
+            loadedStreamUrl = null
             playbackError = "Stream unavailable"
         }
     }
@@ -589,20 +606,33 @@ fun PlayerScreen(
         )
 
         if (isMenuOpen) {
-            val menuType = if (showCaptionMenu) C.TRACK_TYPE_TEXT else C.TRACK_TYPE_AUDIO
-            val menuTitle = if (showCaptionMenu) "Subtitles" else "Audio"
-            TrackSelectionMenu(
-                title = menuTitle,
-                exoPlayer = exoPlayer,
-                trackSelector = trackSelector,
-                trackType = menuType,
-                onDismiss = {
-                    showCaptionMenu = false
-                    showAudioMenu = false
-                    lastInteraction = System.currentTimeMillis()
-                    playPauseFocusRequester.requestFocus()
-                }
-            )
+            if (showCaptionMenu) {
+                SubtitleSelectionMenu(
+                    exoPlayer = exoPlayer,
+                    trackSelector = trackSelector,
+                    subtitlesLoading = subtitlesLoading,
+                    hasFetchedFebBoxSubtitles = subtitles.isNotEmpty(),
+                    onDismiss = {
+                        showCaptionMenu = false
+                        showAudioMenu = false
+                        lastInteraction = System.currentTimeMillis()
+                        playPauseFocusRequester.requestFocus()
+                    }
+                )
+            } else {
+                TrackSelectionMenu(
+                    title = "Audio",
+                    exoPlayer = exoPlayer,
+                    trackSelector = trackSelector,
+                    trackType = C.TRACK_TYPE_AUDIO,
+                    onDismiss = {
+                        showCaptionMenu = false
+                        showAudioMenu = false
+                        lastInteraction = System.currentTimeMillis()
+                        playPauseFocusRequester.requestFocus()
+                    }
+                )
+            }
         }
     }
 }
@@ -1229,15 +1259,36 @@ private data class TrackOption(
     val isSelected: Boolean,
     val isSupported: Boolean,
     val isOff: Boolean = false,
-    val isAuto: Boolean = false
+    val isAuto: Boolean = false,
+    val subtitleSource: SubtitleSource? = null
 )
 
+private enum class SubtitleSource {
+    Native,
+    FebBox
+}
+
+private fun rawLabel(format: Format): String = format.label?.trim().orEmpty()
+
+private fun displaySubtitleLabel(label: String): String =
+    label.removePrefix(FEBBOX_SUBTITLE_LABEL_PREFIX).ifBlank { "Subtitle" }
+
+private fun subtitleSource(format: Format): SubtitleSource =
+    if (rawLabel(format).startsWith(FEBBOX_SUBTITLE_LABEL_PREFIX)) {
+        SubtitleSource.FebBox
+    } else {
+        SubtitleSource.Native
+    }
+
 private fun trackLabel(format: Format, index: Int, trackType: Int): String {
+    val label = rawLabel(format)
+    if (trackType == C.TRACK_TYPE_TEXT && label.isNotBlank()) {
+        return displaySubtitleLabel(label)
+    }
     val language = format.language?.trim().orEmpty()
     if (language.isNotBlank() && language.lowercase() != "und") {
         return language.lowercase()
     }
-    val label = format.label?.trim().orEmpty()
     if (label.isNotBlank()) return label
     return if (trackType == C.TRACK_TYPE_TEXT) "Subtitle ${index + 1}" else "Track ${index + 1}"
 }
@@ -1249,6 +1300,395 @@ private fun resetTrackOverrides(trackSelector: DefaultTrackSelector) {
         .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
         .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
         .build()
+}
+
+@Composable
+@Suppress("DEPRECATION")
+private fun SubtitleSelectionMenu(
+    exoPlayer: ExoPlayer,
+    trackSelector: DefaultTrackSelector,
+    subtitlesLoading: Boolean,
+    hasFetchedFebBoxSubtitles: Boolean,
+    onDismiss: () -> Unit
+) {
+    val tracks = exoPlayer.currentTracks
+    val mapped = trackSelector.currentMappedTrackInfo
+    val rendererIndex = mapped?.run {
+        (0 until rendererCount).firstOrNull { getRendererType(it) == C.TRACK_TYPE_TEXT }
+    }
+    val isTypeDisabled = rendererIndex?.let { trackSelector.parameters.getRendererDisabled(it) } ?: false
+    val trackGroups = if (rendererIndex != null) mapped.getTrackGroups(rendererIndex) else null
+    val textOptions = remember(tracks, isTypeDisabled, trackGroups, trackSelector.parameters) {
+        val built = mutableListOf<TrackOption>()
+        tracks.groups.forEach { group ->
+            if (group.type != C.TRACK_TYPE_TEXT) return@forEach
+            val trackGroup = group.mediaTrackGroup
+            for (i in 0 until trackGroup.length) {
+                val format = trackGroup.getFormat(i)
+                val groupIndex = trackGroups?.let { findGroupIndex(it, trackGroup) }
+                val isSupported = group.isTrackSupported(i) && groupIndex != null
+                built.add(
+                    TrackOption(
+                        label = trackLabel(format, i, C.TRACK_TYPE_TEXT),
+                        trackIndex = i,
+                        groupIndex = groupIndex,
+                        isSelected = group.isTrackSelected(i) && !isTypeDisabled,
+                        isSupported = isSupported,
+                        subtitleSource = subtitleSource(format)
+                    )
+                )
+            }
+        }
+        built
+    }
+
+    val nativeOptions = textOptions.filter { it.subtitleSource == SubtitleSource.Native }
+    val febBoxOptions = textOptions.filter { it.subtitleSource == SubtitleSource.FebBox }
+    var activeTab by remember { mutableStateOf(SubtitleSource.Native) }
+
+    LaunchedEffect(nativeOptions.size, febBoxOptions.size, subtitlesLoading) {
+        if (
+            activeTab == SubtitleSource.Native &&
+            nativeOptions.isEmpty() &&
+            (febBoxOptions.isNotEmpty() || subtitlesLoading)
+        ) {
+            activeTab = SubtitleSource.FebBox
+        }
+    }
+
+    val tabOptions = if (activeTab == SubtitleSource.Native) nativeOptions else febBoxOptions
+    val offOption = TrackOption(
+        label = "Off",
+        trackIndex = null,
+        groupIndex = null,
+        isSelected = isTypeDisabled,
+        isSupported = true,
+        isOff = true
+    )
+    val visibleOptions = listOf(offOption) + tabOptions
+    val selectedIndex = visibleOptions.indexOfFirst { it.isSelected }
+    val initialFocusIndex = if (selectedIndex >= 0) selectedIndex else 0
+    val optionFocusRequesters = remember(activeTab, visibleOptions.size) {
+        List(visibleOptions.size) { FocusRequester() }
+    }
+    val nativeTabRequester = remember { FocusRequester() }
+    val febBoxTabRequester = remember { FocusRequester() }
+    val activeTabRequester = if (activeTab == SubtitleSource.Native) nativeTabRequester else febBoxTabRequester
+    val firstOptionRequester = optionFocusRequesters.firstOrNull()
+
+    LaunchedEffect(activeTab, visibleOptions.size, initialFocusIndex) {
+        if (visibleOptions.isNotEmpty() && initialFocusIndex in visibleOptions.indices) {
+            withFrameNanos { }
+            optionFocusRequesters[initialFocusIndex].requestFocus()
+        } else {
+            withFrameNanos { }
+            activeTabRequester.requestFocus()
+        }
+    }
+
+    fun switchTab(next: SubtitleSource) {
+        activeTab = next
+    }
+
+    val emptyMessage = when {
+        activeTab == SubtitleSource.Native && nativeOptions.isEmpty() -> "No native video subtitles"
+        activeTab == SubtitleSource.FebBox && subtitlesLoading -> "Loading FebBox subtitles..."
+        activeTab == SubtitleSource.FebBox && hasFetchedFebBoxSubtitles && febBoxOptions.isEmpty() -> "Preparing FebBox subtitles..."
+        activeTab == SubtitleSource.FebBox && febBoxOptions.isEmpty() -> "No FebBox subtitles"
+        else -> null
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0x99000000))
+            .clickable(
+                indication = null,
+                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+            ) { onDismiss() },
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            modifier = Modifier
+                .widthIn(min = 320.dp, max = 420.dp)
+                .clip(RoundedCornerShape(18.dp))
+                .background(Color(0xFF0F0F0F))
+                .border(1.dp, Color(0x26FFFFFF), RoundedCornerShape(18.dp))
+                .padding(horizontal = 14.dp, vertical = 12.dp)
+                .clickable(
+                    indication = null,
+                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                ) { /* consume */ }
+        ) {
+            Text(
+                text = "Subtitles",
+                color = TextColor,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                fontFamily = SfProRounded
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0x14FFFFFF))
+                    .padding(3.dp),
+                horizontalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                SubtitleTabButton(
+                    label = "Native video",
+                    active = activeTab == SubtitleSource.Native,
+                    count = nativeOptions.size,
+                    modifier = Modifier
+                        .weight(1f)
+                        .focusRequester(nativeTabRequester),
+                    leftRequester = FocusRequester.Cancel,
+                    rightRequester = febBoxTabRequester,
+                    downRequester = firstOptionRequester,
+                    onClick = { switchTab(SubtitleSource.Native) },
+                    onMoveLeft = {},
+                    onMoveRight = {
+                        switchTab(SubtitleSource.FebBox)
+                        febBoxTabRequester.requestFocus()
+                    }
+                )
+                SubtitleTabButton(
+                    label = "FebBox",
+                    active = activeTab == SubtitleSource.FebBox,
+                    count = febBoxOptions.size,
+                    modifier = Modifier
+                        .weight(1f)
+                        .focusRequester(febBoxTabRequester),
+                    leftRequester = nativeTabRequester,
+                    rightRequester = FocusRequester.Cancel,
+                    downRequester = firstOptionRequester,
+                    onClick = { switchTab(SubtitleSource.FebBox) },
+                    onMoveLeft = {
+                        switchTab(SubtitleSource.Native)
+                        nativeTabRequester.requestFocus()
+                    },
+                    onMoveRight = {}
+                )
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            if (emptyMessage != null) {
+                Text(
+                    text = emptyMessage,
+                    color = Color(0x99FFFFFF),
+                    fontSize = 12.sp,
+                    fontFamily = SfProRounded,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+            androidx.compose.foundation.lazy.LazyColumn(
+                modifier = Modifier.heightIn(max = 270.dp)
+            ) {
+                itemsIndexed(visibleOptions) { index, option ->
+                    SubtitleOptionRow(
+                        option = option,
+                        focusRequester = optionFocusRequesters[index],
+                        upRequester = if (index == 0) activeTabRequester else optionFocusRequesters[index - 1],
+                        downRequester = optionFocusRequesters.getOrNull(index + 1) ?: FocusRequester.Cancel,
+                        onMoveLeft = {
+                            if (activeTab == SubtitleSource.FebBox) {
+                                switchTab(SubtitleSource.Native)
+                                nativeTabRequester.requestFocus()
+                            }
+                        },
+                        onMoveRight = {
+                            if (activeTab == SubtitleSource.Native) {
+                                switchTab(SubtitleSource.FebBox)
+                                febBoxTabRequester.requestFocus()
+                            }
+                        },
+                        onSelect = {
+                            applyTrackSelection(
+                                trackSelector = trackSelector,
+                                trackType = C.TRACK_TYPE_TEXT,
+                                rendererIndex = rendererIndex,
+                                trackGroups = trackGroups,
+                                option = option
+                            )
+                            onDismiss()
+                        },
+                        onDismiss = onDismiss
+                    )
+                    if (index != visibleOptions.lastIndex) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SubtitleTabButton(
+    label: String,
+    active: Boolean,
+    count: Int,
+    modifier: Modifier = Modifier,
+    leftRequester: FocusRequester,
+    rightRequester: FocusRequester,
+    downRequester: FocusRequester?,
+    onClick: () -> Unit,
+    onMoveLeft: () -> Unit,
+    onMoveRight: () -> Unit
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    val background = when {
+        isFocused -> Color.White
+        active -> Color(0x26FFFFFF)
+        else -> Color.Transparent
+    }
+    val textColor = if (isFocused) Color.Black else Color.White
+
+    Row(
+        modifier = modifier
+            .height(36.dp)
+            .clip(RoundedCornerShape(9.dp))
+            .background(background)
+            .focusProperties {
+                left = leftRequester
+                right = rightRequester
+                downRequester?.let { down = it }
+                up = FocusRequester.Cancel
+            }
+            .onFocusChanged { isFocused = it.isFocused }
+            .focusable()
+            .onKeyEvent { keyEvent ->
+                if (keyEvent.nativeKeyEvent.action != KeyEvent.ACTION_DOWN) return@onKeyEvent false
+                when (keyEvent.nativeKeyEvent.keyCode) {
+                    KeyEvent.KEYCODE_DPAD_CENTER,
+                    KeyEvent.KEYCODE_ENTER,
+                    KeyEvent.KEYCODE_NUMPAD_ENTER -> {
+                        onClick()
+                        true
+                    }
+                    KeyEvent.KEYCODE_DPAD_LEFT -> {
+                        onMoveLeft()
+                        false
+                    }
+                    KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                        onMoveRight()
+                        false
+                    }
+                    else -> false
+                }
+            }
+            .clickable { onClick() }
+            .padding(horizontal = 10.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            color = textColor,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            fontFamily = SfProRounded,
+            maxLines = 1
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            text = count.toString(),
+            color = textColor.copy(alpha = if (isFocused) 0.75f else 0.62f),
+            fontSize = 11.sp,
+            fontFamily = SfProRounded,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun SubtitleOptionRow(
+    option: TrackOption,
+    focusRequester: FocusRequester,
+    upRequester: FocusRequester,
+    downRequester: FocusRequester,
+    onMoveLeft: () -> Unit,
+    onMoveRight: () -> Unit,
+    onSelect: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    val rowBg = when {
+        isFocused -> Color.White
+        option.isSelected -> Color(0x1AFFFFFF)
+        else -> Color.Transparent
+    }
+    val textColor = when {
+        !option.isSupported -> Color(0x66FFFFFF)
+        isFocused -> Color.Black
+        else -> Color.White
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .focusRequester(focusRequester)
+            .focusProperties {
+                up = upRequester
+                down = downRequester
+                left = FocusRequester.Cancel
+                right = FocusRequester.Cancel
+            }
+            .onFocusChanged { isFocused = it.isFocused }
+            .focusable(option.isSupported)
+            .onKeyEvent { keyEvent ->
+                if (!option.isSupported) return@onKeyEvent false
+                if (keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
+                    when (keyEvent.nativeKeyEvent.keyCode) {
+                        KeyEvent.KEYCODE_DPAD_CENTER,
+                        KeyEvent.KEYCODE_ENTER,
+                        KeyEvent.KEYCODE_NUMPAD_ENTER -> {
+                            onSelect()
+                            true
+                        }
+                        KeyEvent.KEYCODE_DPAD_LEFT -> {
+                            onMoveLeft()
+                            true
+                        }
+                        KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                            onMoveRight()
+                            true
+                        }
+                        KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE -> {
+                            onDismiss()
+                            true
+                        }
+                        else -> false
+                    }
+                } else {
+                    false
+                }
+            }
+            .clickable(enabled = option.isSupported) { onSelect() }
+            .clip(RoundedCornerShape(12.dp))
+            .background(rowBg)
+            .padding(vertical = 8.dp, horizontal = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = option.label,
+            color = textColor,
+            fontSize = 13.sp,
+            fontFamily = SfProRounded,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+        if (option.isSelected) {
+            Icon(
+                imageVector = PlayerIcons.CircleCheck,
+                contentDescription = null,
+                tint = textColor,
+                modifier = Modifier.size(16.dp)
+            )
+        }
+    }
 }
 
 @Composable

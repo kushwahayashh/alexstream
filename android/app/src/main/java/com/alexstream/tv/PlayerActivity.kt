@@ -38,10 +38,16 @@ class PlayerActivity : ComponentActivity() {
                 // Subtitles load asynchronously; playback starts immediately and
                 // tracks are sideloaded once /api/subtitles resolves.
                 var subtitles by remember { mutableStateOf<List<SubtitleSpec>>(emptyList()) }
+                var subtitlesLoading by remember { mutableStateOf(fid.isNotBlank()) }
 
                 LaunchedEffect(fid) {
-                    if (fid.isBlank()) return@LaunchedEffect
+                    if (fid.isBlank()) {
+                        subtitlesLoading = false
+                        return@LaunchedEffect
+                    }
+                    subtitlesLoading = true
                     subtitles = fetchSubtitles(fid)
+                    subtitlesLoading = false
                 }
 
                 PlayerScreen(
@@ -51,6 +57,7 @@ class PlayerActivity : ComponentActivity() {
                     title = title,
                     initialResumePositionMs = 0L,
                     subtitles = subtitles,
+                    subtitlesLoading = subtitlesLoading,
                     onClose = { finish() }
                 )
             }
