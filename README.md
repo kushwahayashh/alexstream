@@ -13,8 +13,8 @@ wraps that UI in a native shell with an ExoPlayer video player.
 │   ├── config.js          # loads secrets from .env (ShowBox keys, FebBox cookie, proxy)
 │   ├── fetch-utils.js     # fetch with timeout + retry
 │   ├── subtitles.js       # FebBox subtitle scrape + SRT→VTT conversion
-│   └── public/            # the web UI (vanilla ES modules) served by server.js
-└── android/               # Android TV app (bundles public/, native ExoPlayer)
+└── android/               # Android TV app (bundled web UI, native ExoPlayer)
+    └── app/src/main/assets/ # vanilla ES module web UI bundled in the APK
 ```
 
 ## How it works
@@ -70,9 +70,10 @@ Server listens on `http://localhost:3000` (override with `PORT`).
 
 ## Android TV app
 
-`android/` is a native Android TV app that bundles the `public/` UI in the APK,
-does its `/api/*` and TMDB networking natively (Kotlin HTTP via a JS bridge),
-and plays video in a native ExoPlayer instead of HTML5 `<video>`.
+`android/` is a native Android TV app that bundles the web UI in the APK.
+The bundled JavaScript fetches `/api/*` and TMDB data from the hosted backend,
+while Kotlin owns backend URL configuration, native ExoPlayer playback, and
+subtitle fetching for the native player.
 
 It talks to a hosted instance of this backend — set the backend URL in
 `android/app/src/main/java/com/alexstream/tv/BackendConfig.kt`, then build:

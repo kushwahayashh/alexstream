@@ -12,6 +12,7 @@ import { stopPlayer, closeQualityModal, handleModalKey } from './player.js';
 import { loadHome, handleHomeKey } from './home.js';
 import { handleSearchKey } from './search.js';
 import { handleDetailKey } from './detail.js';
+import { triggerUpdate } from './update.js';
 
 // Tear down any open player/quality modal when navigating away from detail.
 // (Modals only open from the detail page; staying within it keeps them.)
@@ -36,6 +37,6 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-initChrome({ onSearchPage: () => $('#searchInput').focus() });
+initChrome({ onSearchPage: () => $('#searchInput').focus(), onUpdate: triggerUpdate });
 
 loadHome();

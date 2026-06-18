@@ -14,6 +14,7 @@ import {
   getCurrentPage, showPage, onEnterHome, navPills,
 } from './router.js';
 import { openTitle } from './detail.js';
+import { triggerUpdate } from './update.js';
 
 const contentEl = $('#content');
 const searchInput = $('#searchInput');
@@ -31,10 +32,37 @@ const ROWS = [
 ];
 
 let homeRows = []; // cached TMDB rows (Watch Later is prepended at render time)
+let lastRowScrollIndex = null;
+let cachedViewportWidth = null;
+let cachedGeometry = null;
 
 // Keyboard-nav state. area is 'nav' (the pills) or a numeric row index.
-export const nav = { area: 'nav', col: 0, rows: [], movies: [] };
+export const nav = { area: 'nav', col: 0, cols: [], rows: [], movies: [] };
 let navLastTime = 0;
+
+const ROW_SCROLL_TOP_OFFSET = 12;
+
+window.addEventListener('resize', () => {
+  cachedViewportWidth = null;
+  cachedGeometry = null;
+});
+
+function readCssPx(name, fallback) {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue(name);
+  const value = parseFloat(raw);
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function layoutGeometry() {
+  if (!cachedGeometry) {
+    cachedGeometry = {
+      cardWidth: readCssPx('--card-w', 132),
+      cardGap: readCssPx('--card-gap', 10),
+      rowPaddingLeft: readCssPx('--row-pad', 48),
+    };
+  }
+  return cachedGeometry;
+}
 
 /* ---- Focus ---- */
 export function focusCurrent() {
@@ -54,30 +82,52 @@ export function focusCurrent() {
   const row = nav.rows[nav.area] || [];
   if (!row.length) return;
   nav.col = clamp(nav.col, 0, row.length - 1);
+  nav.cols[nav.area] = nav.col;
   const card = row[nav.col];
   if (!card) return;
   card.focus({ preventScroll: true });
-  scrollRowIntoView(card);
-  scrollCardIntoView(card);
+  scrollRowIntoView(nav.area, card);
+  scrollCardIntoView(nav.col, card);
   const item = (nav.movies[nav.area] || [])[nav.col];
   if (item) setHero(item);
 }
 
-function scrollRowIntoView(card) {
+function scrollRowIntoView(rowIdx, card) {
+  if (rowIdx === lastRowScrollIndex) return;
   const rowEl = card.closest('.row');
-  if (rowEl) scroller.scrollTo(contentEl, null, Math.max(0, rowEl.offsetTop - 12));
+  if (!rowEl) return;
+
+  if (!rowEl.dataset.cachedOffsetTop) {
+    rowEl.dataset.cachedOffsetTop = String(rowEl.offsetTop);
+  }
+  lastRowScrollIndex = rowIdx;
+  const target = Math.max(0, Number(rowEl.dataset.cachedOffsetTop) - ROW_SCROLL_TOP_OFFSET);
+  scroller.scrollTo(contentEl, null, target);
 }
-function scrollCardIntoView(card) {
+
+function scrollCardIntoView(colIdx, card) {
   const scroll = card.closest('.row-scroll');
   if (!scroll) return;
-  const target = card.offsetLeft - (scroll.clientWidth / 2) + (card.offsetWidth / 2);
-  scroller.scrollTo(scroll, Math.max(0, target), null);
+
+  if (cachedViewportWidth == null) cachedViewportWidth = window.innerWidth;
+  const g = layoutGeometry();
+  const cardLeft = g.rowPaddingLeft + (colIdx * (g.cardWidth + g.cardGap));
+  const target = Math.max(0, cardLeft + (g.cardWidth / 2) - (cachedViewportWidth / 2));
+  const currentTarget = parseFloat(scroll.dataset.targetScroll);
+  const current = Number.isNaN(currentTarget) ? scroll.scrollLeft : currentTarget;
+
+  if (Math.abs(target - current) > 1) {
+    scroll.dataset.targetScroll = String(target);
+    scroller.scrollTo(scroll, target, null);
+  }
 }
 
 /* ---- Keyboard ---- */
 function navEnter() {
   if (nav.area === 'nav') {
-    const page = navPills[nav.col]?.dataset.page;
+    const pill = navPills[nav.col];
+    if (pill?.dataset.action === 'update') { triggerUpdate(); return; }
+    const page = pill?.dataset.page;
     if (!page) return;
     showPage(page);
     if (page === 'search') $('#searchInput').focus();
@@ -94,7 +144,7 @@ function processNavKey(key) {
     // navPills.length is the extra slot for the search field.
     if (key === 'ArrowRight') nav.col = clamp(nav.col + 1, 0, navPills.length);
     else if (key === 'ArrowLeft') nav.col = clamp(nav.col - 1, 0, navPills.length);
-    else if (key === 'ArrowDown') { nav.area = 0; nav.col = 0; }
+    else if (key === 'ArrowDown') { nav.area = 0; nav.col = nav.cols[0] ?? 0; }
     focusCurrent();
     return;
   }
@@ -102,14 +152,14 @@ function processNavKey(key) {
   switch (key) {
     case 'ArrowRight': nav.col = clamp(nav.col + 1, 0, (nav.rows[nav.area] || []).length - 1); break;
     case 'ArrowLeft':  nav.col = clamp(nav.col - 1, 0, (nav.rows[nav.area] || []).length - 1); break;
-    case 'ArrowDown':  if (nav.area < nav.rows.length - 1) { nav.area++; nav.col = 0; } break;
+    case 'ArrowDown':  if (nav.area < nav.rows.length - 1) { nav.area++; nav.col = nav.cols[nav.area] ?? nav.col; } break;
     case 'ArrowUp':
       if (nav.area === 0) {
         nav.area = 'nav';
         nav.col = Math.max(0, navPills.findIndex((p) => p.classList.contains('active')));
       } else {
         nav.area--;
-        nav.col = 0;
+        nav.col = nav.cols[nav.area] ?? nav.col;
       }
       break;
   }
@@ -139,15 +189,21 @@ function skeletonRow(title) {
 }
 
 // Build a row element + its card list (used for both TMDB rows and Watch Later).
-function buildRow(row) {
+function buildRow(row, rowIdx) {
   const rowEl = document.createElement('div');
   rowEl.className = 'row';
+  rowEl.dataset.rowIndex = String(rowIdx);
   const title = document.createElement('h2');
   title.className = 'row-title';
   title.textContent = row.title;
   const scroll = document.createElement('div');
   scroll.className = 'row-scroll';
-  const cards = row.items.map((item) => createCard(item, { onOpen: openTitle, onFocus: syncNavToCard }));
+  const cards = row.items.map((item, colIdx) => {
+    const card = createCard(item, { onOpen: openTitle, onFocus: syncNavToCard });
+    card.dataset.row = String(rowIdx);
+    card.dataset.col = String(colIdx);
+    return card;
+  });
   scroll.replaceChildren(...cards);
   rowEl.append(title, scroll);
   return { rowEl, cards };
@@ -164,6 +220,7 @@ function syncNavToCard(card) {
 // Render the home rows, prepending a "Watch Later" row when non-empty.
 // Rebuilds the keyboard-nav arrays from scratch each time.
 function renderHomeRows() {
+  lastRowScrollIndex = null;
   const watch = getWatchlist();
   const allRows = watch.length
     ? [{ title: 'Watch Later', items: watch }, ...homeRows]
@@ -173,7 +230,7 @@ function renderHomeRows() {
   nav.movies = [];
   const frag = document.createDocumentFragment();
   allRows.forEach((row, rowIdx) => {
-    const { rowEl, cards } = buildRow(row);
+    const { rowEl, cards } = buildRow(row, rowIdx);
     frag.appendChild(rowEl);
     nav.rows[rowIdx] = cards;
     nav.movies[rowIdx] = row.items;

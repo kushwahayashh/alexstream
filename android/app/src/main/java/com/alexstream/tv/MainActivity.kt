@@ -1,9 +1,15 @@
 package com.alexstream.tv
 
 import android.annotation.SuppressLint
+import android.app.DownloadManager
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.os.SystemClock
 import android.view.KeyEvent
 import android.view.View
@@ -18,8 +24,10 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.FileProvider
 import androidx.webkit.WebViewAssetLoader
 import org.json.JSONObject
+import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
@@ -35,12 +43,35 @@ class MainActivity : AppCompatActivity() {
     private var lastNavKeyCode: Int = KeyEvent.KEYCODE_UNKNOWN
     private var lastNavKeyAtMs: Long = 0L
 
-    @SuppressLint("SetJavaScriptEnabled")
+    // In-app updater: id of the in-flight APK download and our completion receiver.
+    private var downloadId: Long = -1L
+    private var downloadReceiverRegistered = false
+
+    private val onDownloadComplete = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L)
+            if (id != downloadId) return
+            val ok = downloadSucceeded(id)
+            if (ok) installApk()
+            notifyUpdateStatus(ok, if (ok) "" else "Download failed")
+        }
+    }
+
+    @SuppressLint("SetJavaScriptEnabled", "UnspecifiedRegisterReceiverFlag")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         supportActionBar?.hide()
         enterImmersive()
+
+        // Listen for the updater's APK download to finish, then launch the installer.
+        val filter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(onDownloadComplete, filter, Context.RECEIVER_EXPORTED)
+        } else {
+            registerReceiver(onDownloadComplete, filter)
+        }
+        downloadReceiverRegistered = true
 
         // Serve bundled assets over an https origin so ES modules (import/export)
         // load — file:// blocks module scripts. Registered at "/" so the
@@ -101,6 +132,38 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // ── In-app updater ───────────────────────────────────────────────────────
+    // The downloaded APK lives in app-private external storage and is served to
+    // the system installer through the FileProvider declared in the manifest.
+    private fun updateApkFile(): File =
+        File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "update.apk")
+
+    private fun downloadSucceeded(id: Long): Boolean {
+        val manager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        manager.query(DownloadManager.Query().setFilterById(id)).use { cursor ->
+            if (!cursor.moveToFirst()) return false
+            val status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
+            return status == DownloadManager.STATUS_SUCCESSFUL
+        }
+    }
+
+    private fun installApk() {
+        val file = updateApkFile()
+        if (!file.exists()) return
+        val uri = FileProvider.getUriForFile(this, "$packageName.provider", file)
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/vnd.android.package-archive")
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
+        }
+        startActivity(intent)
+    }
+
+    // Tell the web UI how the download ended so the Update button can reset / show "Failed".
+    private fun notifyUpdateStatus(ok: Boolean, message: String) {
+        val js = "window.__onUpdateStatus && window.__onUpdateStatus($ok, ${JSONObject.quote(message)});"
+        webView.post { webView.evaluateJavascript(js, null) }
+    }
+
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (shouldThrottleNavKey(event)) return true
         return super.dispatchKeyEvent(event)
@@ -149,6 +212,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        if (downloadReceiverRegistered) {
+            unregisterReceiver(onDownloadComplete)
+            downloadReceiverRegistered = false
+        }
         webView.destroy()
         super.onDestroy()
     }
@@ -185,6 +252,29 @@ class MainActivity : AppCompatActivity() {
                     putExtra(PlayerActivity.EXTRA_FID, fid)
                 }
                 startActivity(intent)
+            }
+        }
+
+        // Download the latest APK and (on completion) launch the installer. The
+        // button's "Downloading…" state is driven by JS; onDownloadComplete fires
+        // installApk() and reports back via window.__onUpdateStatus.
+        @JavascriptInterface
+        fun updateApp(url: String) {
+            if (url.isBlank()) return
+            runOnUiThread {
+                val file = updateApkFile()
+                if (file.exists()) file.delete()
+
+                val request = DownloadManager.Request(Uri.parse(url)).apply {
+                    setTitle("AlexStream Update")
+                    setDescription("Downloading the latest version")
+                    setDestinationInExternalFilesDir(
+                        this@MainActivity, Environment.DIRECTORY_DOWNLOADS, "update.apk"
+                    )
+                    setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
+                }
+                val manager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+                downloadId = manager.enqueue(request)
             }
         }
     }

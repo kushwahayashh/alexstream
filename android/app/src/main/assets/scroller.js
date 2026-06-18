@@ -10,12 +10,18 @@ class SmoothScroller {
 
   scrollTo(el, x, y) {
     if (!el) return;
-    const s = this.targets.get(el) || {};
-    s.x = el.scrollLeft;
-    s.y = el.scrollTop;
-    s.tx = x != null ? x : (s.tx ?? el.scrollLeft);
-    s.ty = y != null ? y : (s.ty ?? el.scrollTop);
-    this.targets.set(el, s);
+    if (!this.targets.has(el)) {
+      this.targets.set(el, {
+        x: el.scrollLeft,
+        y: el.scrollTop,
+        tx: x != null ? x : el.scrollLeft,
+        ty: y != null ? y : el.scrollTop,
+      });
+    } else {
+      const s = this.targets.get(el);
+      if (x != null) s.tx = x;
+      if (y != null) s.ty = y;
+    }
     if (!this.running) {
       this.running = true;
       requestAnimationFrame(() => this.tick());

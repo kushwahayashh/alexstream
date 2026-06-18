@@ -2,11 +2,10 @@
 
 A native Android TV app, modelled on the ALEX architecture:
 
-- **UI is bundled in the APK** (`app/src/main/assets/` = the `public/` web app),
+- **UI is bundled in the APK** (`app/src/main/assets/` = the web app),
   loaded instantly from local storage — no network round-trip for the UI.
-- **Networking is native.** A JS bridge (`AndroidBridge.fetchJson`) routes the
-  app's `/api/*` and TMDB calls through Kotlin HTTP, dodging WebView CORS /
-  cleartext limits.
+- **Browse/API networking is JavaScript.** The bundled WebView UI uses normal
+  `fetch()` for TMDB proxy and `/api/*` calls to the hosted Modal backend.
 - **Video plays in a native ExoPlayer** (`PlayerActivity` / `PlayerScreen`,
   ported from ALEX) with D-pad controls, seek, and track menus — not HTML5
   `<video>`. External English subtitles from `/api/subtitles` are sideloaded.
@@ -20,8 +19,9 @@ Put your deployed **Modal backend URL** in
 const val BASE_URL = "https://your-app--whatever.modal.run"
 ```
 
-That's the only required edit. It's used both natively (subtitle fetch) and by
-the bundled JS (via `AndroidBridge.backendBase()`), so set it once here.
+That's the only required edit. It's used by the bundled JS (via
+`AndroidBridge.backendBase()`) and by native subtitle fetching, so set it once
+here.
 
 TMDB browsing works without the backend; search/resolve/streaming need it.
 
@@ -46,7 +46,7 @@ Appears in the Android TV Apps row (LEANBACK_LAUNCHER).
 ## How a stream flows
 
 1. Web UI (in WebView) browses TMDB, resolves a title to a ShowBox id, and
-   lists quality options — all via `AndroidBridge.fetchJson` → Modal backend.
+   lists quality options with JavaScript `fetch()` calls to the Modal backend.
 2. Selecting a quality calls `AndroidBridge.play(url, ext, title, fid)`.
 3. `PlayerActivity` opens, fetches `/api/subtitles?fid=…` natively, and plays
    the stream in ExoPlayer with subtitles sideloaded.

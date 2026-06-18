@@ -51,9 +51,11 @@ export function showPage(page) {
 
 // Wire the nav pills (click + the scrolled-topbar style). Imported for side effect
 // by main.js so the listeners attach once at startup.
-export function initChrome({ onSearchPage } = {}) {
+export function initChrome({ onSearchPage, onUpdate } = {}) {
   navPills.forEach((pill) => {
     pill.addEventListener('click', () => {
+      // Action pills (e.g. Update) aren't pages — run their handler instead.
+      if (pill.dataset.action === 'update') { onUpdate?.(); return; }
       // showPage ignores pages without a view (Library/Settings are inert for now).
       showPage(pill.dataset.page);
       if (pill.dataset.page === 'search') onSearchPage?.();

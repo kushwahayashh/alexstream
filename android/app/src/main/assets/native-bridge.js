@@ -1,9 +1,10 @@
 /* ───────────────────────── Native bridge (Android) ─────────────────────────
    Loaded as a classic script BEFORE the ES modules so the globals it sets are
    available to them. When running inside the Android WebView, AndroidBridge is
-   injected by MainActivity; networking and playback are then handled natively
-   (no browser fetch/CORS, native ExoPlayer for video). In a plain browser none
-   of this exists and the app falls back to fetch()/HTML5 video.            */
+   injected by MainActivity. The web UI still uses normal fetch() for API data;
+   this bridge provides the backend base URL and hands selected streams to the
+   native ExoPlayer. In a plain browser none of this exists and the app falls
+   back to any preconfigured backend base / HTML5 video.                    */
 (function () {
   const bridge = (typeof window !== 'undefined') ? window.AndroidBridge : null;
   const callbacks = {};
@@ -57,5 +58,27 @@
       return true;
     }
     return false;
+  };
+
+  // ── In-app updater ──
+  // True only inside the Android WebView where the native downloader exists.
+  window.__hasNativeUpdate = !!(bridge && typeof bridge.updateApp === 'function');
+
+  // Kick off the native APK download + install. Returns false in a plain browser
+  // so the caller can show an "unavailable" state instead of hanging.
+  window.__updateApp = function (url) {
+    if (bridge && typeof bridge.updateApp === 'function') {
+      bridge.updateApp(url);
+      return true;
+    }
+    return false;
+  };
+
+  // Native download-complete callback. update.js registers a single listener here
+  // so the Update button can reset to "Update" (success) or show "Failed".
+  window.__onUpdateStatus = function (ok, message) {
+    if (typeof window.__updateStatusListener === 'function') {
+      window.__updateStatusListener(ok, message);
+    }
   };
 })();
