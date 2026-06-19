@@ -21,7 +21,7 @@
 
 /* Pin the root font-size (default would be 16px) so rem-based sizing matches the
    intended TV scale — without this the whole UI renders ~23% larger. */
-html { font-size: 13px; scroll-behavior: auto; }
+html { font-size: 11px; scroll-behavior: auto; }
 
 body {
   background: var(--bg);
@@ -93,21 +93,10 @@ body {
   outline: none;
 }
 
-/* Update is an action pill, not a page — give it a red accent border so it reads
-   distinctly, and dim it while the APK is downloading. */
-.nav-pill[data-action="update"] {
-  border-color: rgba(229, 9, 20, 0.55);
-  color: var(--red);
-}
-.nav-pill[data-action="update"]:focus,
-.nav-pill[data-action="update"].is-focused {
-  color: #000;
-  background: #fff;
-  border-color: #fff;
-}
+/* Update is an action pill, not a page, but it should look like the other
+   pills — only dim it while the APK is downloading. */
 .nav-pill.is-downloading {
   opacity: 0.65;
-  border-color: rgba(229, 9, 20, 0.35);
   pointer-events: none;
 }
 
