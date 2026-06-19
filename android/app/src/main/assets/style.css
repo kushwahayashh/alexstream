@@ -21,9 +21,12 @@
 
 /* Pin the root font-size (default would be 16px) so rem-based sizing matches the
    intended TV scale — without this the whole UI renders ~23% larger. */
-html { font-size: 11px; scroll-behavior: auto; }
+html { font-size: 13px; scroll-behavior: auto; }
 
 body {
+  /* Master scale knob: shrinks the entire UI (px + rem) uniformly so it isn't
+     oversized on TV. Lower = smaller; raise toward 1 = larger. */
+  zoom: 0.85;
   background: var(--bg);
   color: var(--text);
   font-family: 'Google Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
