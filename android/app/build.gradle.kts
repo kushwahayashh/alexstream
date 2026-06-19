@@ -15,37 +15,30 @@ android {
         versionName = "1.0"
     }
 
-    // Release signing is driven by environment variables so the keystore never
-    // lives in the repo (it's a base64 GitHub Secret, decoded in CI). When the
-    // env vars are absent (local builds, forks without secrets) we fall back to
-    // the default debug keystore so the build still succeeds.
-    val keystorePath = System.getenv("KEYSTORE_FILE")?.takeIf { it.isNotBlank() }
-    val hasReleaseKeystore = keystorePath != null && file(keystorePath).exists()
+    // Signing uses a fixed keystore committed to the repo so EVERY build — CI or
+    // local, on any machine — is signed with the same key. This is what lets the
+    // in-app updater install over a previous version (Android refuses to update an
+    // app whose signature changed). Env vars override the defaults if a private
+    // keystore is ever needed; otherwise the committed one is used.
+    val keystorePath = System.getenv("KEYSTORE_FILE")?.takeIf { it.isNotBlank() } ?: "alexstream.jks"
 
     signingConfigs {
-        if (hasReleaseKeystore) {
-            create("release") {
-                storeFile = file(keystorePath!!)
-                storePassword = System.getenv("KEYSTORE_PASSWORD")
-                keyAlias = System.getenv("KEY_ALIAS")
-                keyPassword = System.getenv("KEY_PASSWORD")
-            }
+        create("release") {
+            storeFile = file(keystorePath)
+            storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "alexstream"
+            keyAlias = System.getenv("KEY_ALIAS") ?: "alexstream"
+            keyPassword = System.getenv("KEY_PASSWORD") ?: "alexstream"
         }
     }
 
     buildTypes {
         debug {
-            // Sign debug with the release key when available so in-app updates
-            // install over previous builds (Android requires matching signatures).
-            if (hasReleaseKeystore) {
-                signingConfig = signingConfigs.getByName("release")
-            }
+            // Sign debug with the same key so debug builds also update cleanly.
+            signingConfig = signingConfigs.getByName("release")
         }
         release {
             isMinifyEnabled = false
-            if (hasReleaseKeystore) {
-                signingConfig = signingConfigs.getByName("release")
-            }
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

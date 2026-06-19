@@ -18,6 +18,9 @@ android/local.properties
 .idea/
 *.keystore
 *.jks
+# ...except the committed app-signing keystore, which must be shared across all
+# builds so in-app updates install over previous versions (see app/build.gradle.kts).
+!android/app/alexstream.jks
 
 # APK / build outputs
 *.apk
